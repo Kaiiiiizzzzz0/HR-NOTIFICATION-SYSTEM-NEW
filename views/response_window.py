@@ -19,6 +19,8 @@ from services.response import (
     update_response
 )
 
+from services.email_receiver.imap_receiver import check_inbox
+from PySide6.QtCore import QTimer
 
 class ResponseWindow(QWidget):
 
@@ -33,6 +35,10 @@ class ResponseWindow(QWidget):
 
         self.setup_ui()
         self.load_responses()
+
+        self.imap_timer = QTimer(self)
+        self.imap_timer.timeout.connect(self.check_incoming_emails)
+        self.imap_timer.start(30000)
 
     def setup_ui(self):
 
@@ -385,4 +391,29 @@ class ResponseWindow(QWidget):
                 self,
                 "Database Error",
                 str(e)
+            )
+
+    def check_incoming_emails(self):
+
+        try:
+
+            processed = check_inbox()
+
+            if processed:
+
+                self.load_responses()
+
+                current_row = self.table.currentRow()
+
+                if current_row >= 0:
+
+                    self.select_response(
+                        current_row,
+                        0
+                    )
+
+        except Exception as e:
+
+            print(
+                f"IMAP check failed: {e}"
             )

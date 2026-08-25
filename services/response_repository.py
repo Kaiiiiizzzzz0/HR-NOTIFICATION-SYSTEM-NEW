@@ -501,4 +501,79 @@ def select_response_by_id(response_id):
 
     finally:
 
+
+        db.close()
+
+def save_incoming_reply(candidate_id, reply_message):
+    db = SessionLocal()
+
+    try:
+        result = db.execute(
+            text("""
+                UPDATE interview_responses
+                SET
+                    reply_message = :reply_message,
+                    responded_at = NOW()
+                WHERE candidate_id = :candidate_id
+                  AND sent_at IS NOT NULL
+            """),
+            {
+                "candidate_id": candidate_id,
+                "reply_message": reply_message
+            }
+        )
+
+        if result.rowcount == 0:
+            raise ValueError(
+                "No sent interview response found for this candidate."
+            )
+
+        db.commit()
+
+        return True
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise ValueError(
+            "Unable to save applicant reply."
+        )
+
+    finally:
+        db.close()
+
+def find_candidate_by_email(email_address):
+
+    db = SessionLocal()
+
+    try:
+
+        result = db.execute(
+            text("""
+                SELECT
+                    candidate_id
+                FROM candidates
+                WHERE LOWER(email) = LOWER(:email)
+                LIMIT 1
+            """),
+            {
+                "email": email_address.strip()
+            }
+        )
+
+        candidate = result.fetchone()
+
+        if candidate is None:
+            return None
+
+        return candidate[0]
+
+    except SQLAlchemyError:
+
+        raise ValueError(
+            "Unable to find candidate by email."
+        )
+
+    finally:
+
         db.close()

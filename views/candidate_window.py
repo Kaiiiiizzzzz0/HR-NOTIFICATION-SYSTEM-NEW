@@ -63,27 +63,70 @@ class CandidateWindow(QWidget):
         )
         self.preview_btn = QPushButton("Preview Email")
         self.filter_btn = QPushButton("Filter")
+        self.select_candidates_btn = QPushButton(
+            "Select Candidates"
+        )
 
+        self.select_all_btn = QPushButton(
+            "Select All"
+        )
+
+        self.send_selected_btn = QPushButton(
+            "Send Selected (0)"
+        )
+
+        self.cancel_selection_btn = QPushButton(
+            "Cancel Selection"
+        )
         self.add_btn.clicked.connect(self.add_candidate)
         self.refresh_btn.clicked.connect(self.load_candidates)
         self.delete_btn.clicked.connect(self.delete_selected)
         self.update_btn.clicked.connect(self.update_selected)
         self.send_notifications_btn.clicked.connect(
-            self.send_pending_notifications
-        )
+            self.send_pending_notifications)
         self.preview_btn.clicked.connect(self.preview_email)
         self.filter_btn.clicked.connect(self.open_filter_dialog)
+        self.select_candidates_btn.clicked.connect(
+            self.enter_selection_mode
+        )
+
+        self.select_all_btn.clicked.connect(
+            self.select_all_candidates
+        )
+
+        self.send_selected_btn.clicked.connect(
+            self.send_selected_notifications
+        )
+
+        self.cancel_selection_btn.clicked.connect(
+            self.exit_selection_mode
+        )
 
         button_row = QHBoxLayout()
         button_row.addStretch()
+
         button_row.addWidget(self.add_btn)
         button_row.addWidget(self.update_btn)
         button_row.addWidget(self.preview_btn)
         button_row.addWidget(self.send_notifications_btn)
-        button_row.addStretch()
+        button_row.addWidget(self.select_candidates_btn)
+        button_row.addWidget(self.select_all_btn)
+        button_row.addWidget(self.send_selected_btn)
+        button_row.addWidget(self.cancel_selection_btn)
 
+        button_row.addStretch()
+        self.select_all_btn.setVisible(False)
+        self.send_selected_btn.setVisible(False)
+        self.cancel_selection_btn.setVisible(False)
         self.table = CandidateTable()
-        self.table.table.cellClicked.connect(self.select_candidate)
+
+        self.table.table.cellClicked.connect(
+            self.select_candidate
+        )
+
+        self.table.table.itemChanged.connect(
+            self.selection_checkbox_changed
+        )
 
         self.selected_candidate_id = None
         self.update_btn.setEnabled(False)
@@ -458,3 +501,128 @@ class CandidateWindow(QWidget):
 
         self.add_btn.setEnabled(True)
         self.update_btn.setEnabled(False)
+        
+    def enter_selection_mode(self):
+        self.table.set_selection_mode(True)
+
+        self.add_btn.setEnabled(False)
+        self.update_btn.setEnabled(False)
+        self.preview_btn.setEnabled(False)
+        self.send_notifications_btn.setEnabled(False)
+        self.delete_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(False)
+        self.filter_btn.setEnabled(False)
+
+        self.select_candidates_btn.setVisible(False)
+
+        self.select_all_btn.setVisible(True)
+        self.send_selected_btn.setVisible(True)
+        self.cancel_selection_btn.setVisible(True)
+
+        self.send_selected_btn.setEnabled(False)
+
+    def exit_selection_mode(self):
+        self.table.set_selection_mode(False)
+
+        self.add_btn.setEnabled(True)
+        self.update_btn.setEnabled(False)
+        self.preview_btn.setEnabled(False)
+        self.send_notifications_btn.setEnabled(True)
+        self.delete_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(True)
+        self.filter_btn.setEnabled(True)
+
+        self.select_candidates_btn.setVisible(True)
+
+        self.select_all_btn.setVisible(False)
+        self.send_selected_btn.setVisible(False)
+        self.cancel_selection_btn.setVisible(False)
+
+        self.clear_form()
+
+    def select_all_candidates(self):
+        self.table.check_all_candidates()
+        self.update_send_selected_button()
+
+    def selection_checkbox_changed(self, item):
+        if item.column() != 0:
+            return
+
+        if not self.table.selection_mode:
+            return
+
+        self.update_send_selected_button()
+
+    def update_send_selected_button(self):
+        count = self.table.checked_count()
+
+        self.send_selected_btn.setText(
+            f"Send Selected ({count})"
+        )
+
+        self.send_selected_btn.setEnabled(
+            count > 0
+        )
+
+    def send_selected_notifications(self):
+        candidate_ids = (
+            self.table.get_checked_candidate_ids()
+        )
+
+        if not candidate_ids:
+            QMessageBox.warning(
+                self,
+                "Selection Required",
+                "Please select at least one candidate."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Send",
+            (
+                f"Send notifications to "
+                f"{len(candidate_ids)} selected "
+                f"candidate(s)?"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            results = dispatch_pending_notifications(
+                edited_emails=self.edited_emails,
+                candidate_ids=candidate_ids
+            )
+
+            sent_count = sum(
+                1
+                for item in results
+                if item.get("success")
+            )
+
+            failed_count = len(results) - sent_count
+
+            QMessageBox.information(
+                self,
+                "Send Selected Notifications",
+                (
+                    f"Notifications processed: "
+                    f"{len(results)}\n"
+                    f"Sent: {sent_count}\n"
+                    f"Failed: {failed_count}"
+                )
+            )
+
+            self.exit_selection_mode()
+            self.load_candidates()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Send Selected Notifications Failed",
+                str(e)
+            )

@@ -86,6 +86,21 @@ def update_candidate_record(candidate_id, candidate_data):
         if result.rowcount == 0:
             raise ValueError("Candidate not found.")
 
+        db.execute(
+            text("""
+                UPDATE interview_responses
+                SET
+                    status = 'Pending',
+                    sent_at = NULL,
+                    notification_processing_at = NULL
+                WHERE candidate_id = :candidate_id
+                  AND status = 'Reschedule Requested'
+            """),
+            {
+                "candidate_id": candidate_id
+            }
+        )
+
         db.commit()
         return True
 
@@ -103,6 +118,7 @@ def update_candidate_record(candidate_id, candidate_data):
 
     finally:
         db.close()
+   
 
 
 def delete_candidate(candidate_id):

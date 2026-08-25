@@ -11,12 +11,26 @@ from services.response_repository import (
 SEND_DELAY = 3
 
 
-def dispatch_pending_notifications(edited_emails=None):
+def dispatch_pending_notifications(
+    edited_emails=None,
+    candidate_ids=None
+):
 
     if edited_emails is None:
         edited_emails = {}
 
     candidates = select_pending_notification_candidates()
+
+    # If specific candidates were selected manually,
+    # keep only those candidates.
+    if candidate_ids is not None:
+        candidate_ids = set(candidate_ids)
+
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.get("candidate_id") in candidate_ids
+        ]
 
     results = []
 
@@ -34,11 +48,12 @@ def dispatch_pending_notifications(edited_emails=None):
         if candidate_id in edited_emails:
             edited_email = edited_emails[candidate_id]
 
-            candidate_data["edited_subject"] = edited_email.get(
-                "subject"
+            candidate_data["edited_subject"] = (
+                edited_email.get("subject")
             )
-            candidate_data["edited_body"] = edited_email.get(
-                "body"
+
+            candidate_data["edited_body"] = (
+                edited_email.get("body")
             )
 
         try:
