@@ -219,8 +219,10 @@ def select_all_candidates(
         result = db.execute(text(sql), params)
         return result.fetchall()
 
-    except SQLAlchemyError:
-        raise ValueError("Unable to retrieve candidate records.")
+    except SQLAlchemyError as e:
+        raise ValueError(
+            "Unable to retrieve candidates from the database.\nPlease try again."
+        )
 
     finally:
         db.close()
