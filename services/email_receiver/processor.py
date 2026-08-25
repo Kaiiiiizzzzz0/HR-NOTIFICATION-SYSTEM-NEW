@@ -10,7 +10,6 @@ VALID_STATUSES = {
     "Reschedule Requested",
 }
 
-MAX_ATTEMPTS = 3
 
 
 def process_response(response_token, status):
@@ -46,13 +45,6 @@ def process_response(response_token, status):
 
         response_id = response[0]
         attempts = response[1] or 0
-
-        # Allow up to 3 responses.
-        # The latest response becomes the current saved response.
-        if attempts >= MAX_ATTEMPTS:
-            raise ValueError(
-                "Maximum response attempts reached."
-            )
 
         new_attempts = attempts + 1
 
