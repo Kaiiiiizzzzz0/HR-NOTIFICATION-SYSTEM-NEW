@@ -1,7 +1,10 @@
 import secrets
 
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy.exc import (
+    SQLAlchemyError,
+    IntegrityError
+)
 
 from database import SessionLocal
 
@@ -48,11 +51,11 @@ def select_all_responses():
 
         return result.fetchall()
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve interview responses."
-        )
+        ) from e
 
     finally:
 
@@ -83,15 +86,17 @@ def select_response_status_summary():
         }
 
         for row in result:
-            summary[row[0]] = row[1]
+
+            if row[0] in summary:
+                summary[row[0]] = row[1]
 
         return summary
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve response status summary."
-        )
+        ) from e
 
     finally:
 
@@ -150,7 +155,10 @@ def insert_interview_response(candidate_id):
                     CASE
                         WHEN TIME(NOW()) < '09:00:00'
                         THEN CURDATE()
-                        ELSE DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+                        ELSE DATE_ADD(
+                            CURDATE(),
+                            INTERVAL 1 DAY
+                        )
                     END
                 )
             """),
@@ -167,26 +175,28 @@ def insert_interview_response(candidate_id):
             "response_token": response_token,
         }
 
-    except IntegrityError:
+    except IntegrityError as e:
 
         db.rollback()
 
         raise ValueError(
             "Unable to create interview response record."
-        )
+        ) from e
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         db.rollback()
 
         raise ValueError(
-            "Unable to connect to the database.\nPlease try again."
-        )
+            "Unable to connect to the database.\n"
+            "Please try again."
+        ) from e
 
     finally:
 
         db.close()
-        
+
+
 def select_pending_notification_candidates():
 
     db = SessionLocal()
@@ -206,7 +216,6 @@ def select_pending_notification_candidates():
                 INNER JOIN candidates c
                     ON c.candidate_id = ir.candidate_id
                 WHERE ir.status = 'Pending'
-                  AND ir.sent_at IS NULL
                   AND ir.notification_processing_at IS NULL
                 ORDER BY c.scheduled_datetime
             """)
@@ -214,15 +223,17 @@ def select_pending_notification_candidates():
 
         return result.mappings().all()
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve pending notification candidates."
-        )
+        ) from e
 
     finally:
 
         db.close()
+
+
 def select_recent_responses(limit=10):
 
     db = SessionLocal()
@@ -252,15 +263,16 @@ def select_recent_responses(limit=10):
 
         return result.fetchall()
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve recent interview responses."
-        )
+        ) from e
 
     finally:
 
         db.close()
+
 
 def mark_notification_processing(response_id):
 
@@ -271,9 +283,10 @@ def mark_notification_processing(response_id):
         result = db.execute(
             text("""
                 UPDATE interview_responses
-                SET notification_processing_at = NOW()
+                SET
+                    notification_processing_at = NOW()
                 WHERE response_id = :response_id
-                  AND sent_at IS NULL
+                  AND status = 'Pending'
                   AND notification_processing_at IS NULL
             """),
             {
@@ -285,18 +298,19 @@ def mark_notification_processing(response_id):
 
         return result.rowcount == 1
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         db.rollback()
 
         raise ValueError(
             "Unable to mark notification as processing."
-        )
+        ) from e
 
     finally:
 
         db.close()
-        
+
+
 def mark_notification_sent(response_id):
 
     db = SessionLocal()
@@ -306,8 +320,11 @@ def mark_notification_sent(response_id):
         result = db.execute(
             text("""
                 UPDATE interview_responses
-                SET sent_at = NOW()
+                SET
+                    sent_at = NOW(),
+                    notification_processing_at = NULL
                 WHERE response_id = :response_id
+                  AND status = 'Pending'
             """),
             {
                 "response_id": response_id
@@ -317,26 +334,36 @@ def mark_notification_sent(response_id):
         if result.rowcount == 0:
 
             raise ValueError(
-                "Interview response not found."
+                "Interview response not found or is no longer Pending."
             )
 
         db.commit()
 
         return True
 
-    except SQLAlchemyError:
+    except ValueError:
+
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
 
         db.rollback()
 
         raise ValueError(
             "Unable to update notification sent time."
-        )
+        ) from e
 
     finally:
 
         db.close()
 
-def save_sent_email(response_id, subject, body):
+
+def save_sent_email(
+    response_id,
+    subject,
+    body
+):
 
     db = SessionLocal()
 
@@ -358,6 +385,7 @@ def save_sent_email(response_id, subject, body):
         )
 
         if result.rowcount == 0:
+
             raise ValueError(
                 "Interview response not found."
             )
@@ -366,13 +394,18 @@ def save_sent_email(response_id, subject, body):
 
         return True
 
-    except SQLAlchemyError:
+    except ValueError:
+
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
 
         db.rollback()
 
         raise ValueError(
             "Unable to save sent email."
-        )
+        ) from e
 
     finally:
 
@@ -409,17 +442,21 @@ def select_sent_email(response_id):
             "body": email[1]
         }
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve sent email."
-        )
+        ) from e
 
     finally:
 
         db.close()
 
-def update_response_status(response_id, status):
+
+def update_response_status(
+    response_id,
+    status
+):
 
     if status not in VALID_STATUSES:
 
@@ -434,7 +471,9 @@ def update_response_status(response_id, status):
         result = db.execute(
             text("""
                 UPDATE interview_responses
-                SET status = :status
+                SET
+                    status = :status,
+                    notification_processing_at = NULL
                 WHERE response_id = :response_id
             """),
             {
@@ -453,13 +492,75 @@ def update_response_status(response_id, status):
 
         return True
 
-    except SQLAlchemyError:
+    except ValueError:
+
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
 
         db.rollback()
 
         raise ValueError(
             "Unable to update the interview status."
+        ) from e
+
+    finally:
+
+        db.close()
+
+
+def update_response_status_by_candidate(
+    candidate_id,
+    status
+):
+
+    if status not in VALID_STATUSES:
+
+        raise ValueError(
+            "Please select a valid interview status."
         )
+
+    db = SessionLocal()
+
+    try:
+
+        result = db.execute(
+            text("""
+                UPDATE interview_responses
+                SET
+                    status = :status,
+                    notification_processing_at = NULL
+                WHERE candidate_id = :candidate_id
+            """),
+            {
+                "candidate_id": candidate_id,
+                "status": status
+            }
+        )
+
+        if result.rowcount == 0:
+
+            raise ValueError(
+                "Interview response not found."
+            )
+
+        db.commit()
+
+        return True
+
+    except ValueError:
+
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
+
+        db.rollback()
+
+        raise ValueError(
+            "Unable to update the interview status."
+        ) from e
 
     finally:
 
@@ -493,21 +594,30 @@ def select_response_by_id(response_id):
 
         return response
 
-    except SQLAlchemyError:
+    except ValueError:
+
+        raise
+
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to retrieve interview response."
-        )
+        ) from e
 
     finally:
 
-
         db.close()
 
-def save_incoming_reply(candidate_id, reply_message):
+
+def save_incoming_reply(
+    candidate_id,
+    reply_message
+):
+
     db = SessionLocal()
 
     try:
+
         result = db.execute(
             text("""
                 UPDATE interview_responses
@@ -524,6 +634,7 @@ def save_incoming_reply(candidate_id, reply_message):
         )
 
         if result.rowcount == 0:
+
             raise ValueError(
                 "No sent interview response found for this candidate."
             )
@@ -532,17 +643,27 @@ def save_incoming_reply(candidate_id, reply_message):
 
         return True
 
-    except SQLAlchemyError:
+    except ValueError:
+
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
+
         db.rollback()
 
         raise ValueError(
             "Unable to save applicant reply."
-        )
+        ) from e
 
     finally:
+
         db.close()
 
-def find_candidate_by_email(email_address):
+
+def find_candidate_by_email(
+    email_address
+):
 
     db = SessionLocal()
 
@@ -568,11 +689,11 @@ def find_candidate_by_email(email_address):
 
         return candidate[0]
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as e:
 
         raise ValueError(
             "Unable to find candidate by email."
-        )
+        ) from e
 
     finally:
 

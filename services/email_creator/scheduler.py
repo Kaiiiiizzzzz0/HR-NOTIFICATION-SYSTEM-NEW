@@ -1,19 +1,36 @@
 from PySide6.QtCore import QDateTime, QTime, QTimer
 from PySide6.QtWidgets import QMessageBox
+
 from .notification import dispatch_pending_notifications
 
 
-def start_daily_scheduler(parent=None, hour=9, minute=0):
-    scheduler_time = QTime(hour, minute)
+def start_daily_scheduler(
+    parent=None,
+    hour=9,
+    minute=0
+):
+
+    scheduler_time = QTime(
+        hour,
+        minute
+    )
+
     now = QDateTime.currentDateTime()
-    today_run = QDateTime(now.date(), scheduler_time)
+
+    today_run = QDateTime(
+        now.date(),
+        scheduler_time
+    )
 
     if today_run <= now:
         today_run = today_run.addDays(1)
 
-    interval_ms = now.msecsTo(today_run)
+    interval_ms = now.msecsTo(
+        today_run
+    )
 
     timer = QTimer(parent)
+
     timer.setSingleShot(True)
 
     def on_timeout():
@@ -21,11 +38,14 @@ def start_daily_scheduler(parent=None, hour=9, minute=0):
         results = dispatch_pending_notifications()
 
         sent_count = sum(
-            1 for item in results
+            1
+            for item in results
             if item.get("success")
         )
 
-        failed_count = len(results) - sent_count
+        failed_count = (
+            len(results) - sent_count
+        )
 
         message = (
             f"Daily scheduler processed: {len(results)}\n"
@@ -47,34 +67,48 @@ def start_daily_scheduler(parent=None, hour=9, minute=0):
             )
 
             if first_error:
-                print(f"First failure: {first_error}")
+                print(
+                    f"First failure: {first_error}"
+                )
 
         if parent is not None:
+
             QMessageBox.information(
                 parent,
                 "Daily Notification Scheduler",
                 message
             )
 
-            parent.scheduler_timer = start_daily_scheduler(
-                parent,
-                hour,
-                minute
+            parent.scheduler_timer = (
+                start_daily_scheduler(
+                    parent,
+                    hour,
+                    minute
+                )
             )
 
         else:
+
             start_daily_scheduler(
                 None,
                 hour,
                 minute
             )
 
-    timer.timeout.connect(on_timeout)
-    timer.start(interval_ms)
+    timer.timeout.connect(
+        on_timeout
+    )
+
+    timer.start(
+        interval_ms
+    )
 
     return timer
 
+
 if __name__ == "__main__":
+
     summary = dispatch_pending_notifications()
+
     for item in summary:
         print(item)

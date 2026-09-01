@@ -1,4 +1,5 @@
 from .validation import validate_candidate_fields
+
 from .candidate_repository import (
     delete_candidate as repo_delete_candidate,
     insert_candidate,
@@ -9,8 +10,12 @@ from .candidate_repository import (
     select_position_list,
     select_upcoming_interviews,
     update_candidate_record,
+    update_application_count,
 )
-from .response_repository import insert_interview_response
+
+from .response_repository import (
+    insert_interview_response
+)
 
 
 def create_candidate(
@@ -25,6 +30,7 @@ def create_candidate(
     interview_duration,
     scheduled_datetime
 ):
+
     candidate_data = validate_candidate_fields(
         first_name,
         last_name,
@@ -38,13 +44,18 @@ def create_candidate(
         scheduled_datetime,
     )
 
-    candidate_id = insert_candidate(candidate_data)
+    candidate_id = insert_candidate(
+        candidate_data
+    )
 
-    try:
-        if candidate_id:
-            insert_interview_response(candidate_id)
-    except Exception:
-        pass
+    if not candidate_id:
+        raise ValueError(
+            "Unable to create candidate."
+        )
+
+    insert_interview_response(
+        candidate_id
+    )
 
     return True
 
@@ -58,6 +69,7 @@ def get_all_candidates(
     end_date="",
     search_text=""
 ):
+
     return select_all_candidates(
         interview_type,
         interview_level,
@@ -70,23 +82,36 @@ def get_all_candidates(
 
 
 def get_hr_list():
+
     return select_hr_list()
 
 
 def get_position_list():
+
     return select_position_list()
 
 
 def get_dashboard_summary():
+
     return select_dashboard_summary()
 
 
-def get_upcoming_interviews(limit=10):
-    return select_upcoming_interviews(limit)
+def get_upcoming_interviews(
+    limit=10
+):
+
+    return select_upcoming_interviews(
+        limit
+    )
 
 
-def get_candidate_by_id(candidate_id):
-    return select_candidate_by_id(candidate_id)
+def get_candidate_by_id(
+    candidate_id
+):
+
+    return select_candidate_by_id(
+        candidate_id
+    )
 
 
 def update_candidate(
@@ -102,6 +127,7 @@ def update_candidate(
     interview_duration,
     scheduled_datetime
 ):
+
     candidate_data = validate_candidate_fields(
         first_name,
         last_name,
@@ -115,8 +141,27 @@ def update_candidate(
         scheduled_datetime,
     )
 
-    return update_candidate_record(candidate_id, candidate_data)
+    return update_candidate_record(
+        candidate_id,
+        candidate_data
+    )
 
 
-def delete_candidate(candidate_id):
-    return repo_delete_candidate(candidate_id)
+def delete_candidate(
+    candidate_id
+):
+
+    return repo_delete_candidate(
+        candidate_id
+    )
+
+
+def update_candidate_application_count(
+    candidate_id,
+    application_count
+):
+
+    return update_application_count(
+        candidate_id,
+        application_count
+    )

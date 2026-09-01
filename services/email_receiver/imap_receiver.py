@@ -1,6 +1,7 @@
 import imaplib
 import email
 import os
+import re
 from datetime import datetime, timedelta
 
 from email.header import decode_header
@@ -95,6 +96,19 @@ def get_email_body(message):
         return "No response provided."
 
     return body
+
+def extract_new_reply(body):
+    marker = re.search(
+        r"On .+?wrote:",
+        body,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    if marker:
+        return body[:marker.start()].strip()
+
+    return body.strip()
+
 def find_candidate_by_email(sender_email):
 
     candidate_id = find_candidate_id_by_email(
@@ -188,14 +202,12 @@ def check_inbox():
                     sender_email
                 )
 
-                # Ignore emails from Facebook,
-                # Microsoft, newsletters, etc.
+                
                 if candidate_id is None:
                     continue
 
-                reply_message = get_email_body(
-                    message
-                )
+                reply_message = get_email_body(message)
+                reply_message = extract_new_reply(reply_message)
 
                 if not reply_message:
                     continue

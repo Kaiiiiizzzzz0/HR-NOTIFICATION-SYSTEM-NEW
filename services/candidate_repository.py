@@ -8,6 +8,33 @@ def insert_candidate(candidate_data):
     db = SessionLocal()
 
     try:
+        # Check if the exact candidate already exists.
+        existing = db.execute(
+            text("""
+                SELECT candidate_id
+                FROM candidates
+                WHERE first_name = :first_name
+                  AND last_name = :last_name
+                  AND email = :email
+                  AND phone = :phone
+                  AND position_role = :position_role
+                LIMIT 1
+            """),
+            {
+                "first_name": candidate_data["first_name"],
+                "last_name": candidate_data["last_name"],
+                "email": candidate_data["email"],
+                "phone": candidate_data["phone"],
+                "position_role": candidate_data["position_role"],
+            }
+        ).fetchone()
+
+        if existing is not None:
+            raise ValueError(
+                f"Applicant already exists in the database.\n\n"
+                f"Candidate ID: {existing[0]}"
+            )
+
         result = db.execute(
             text("""
                 INSERT INTO candidates(
@@ -47,10 +74,55 @@ def insert_candidate(candidate_data):
             "Unable to save the candidate because the data violates a database rule."
         )
 
+    except ValueError:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise ValueError(
+            f"Database error:\n{e}"
+        )
+
+    finally:
+        db.close()
+
+
+def update_application_count(candidate_id, application_count):
+    db = SessionLocal()
+
+    try:
+        if application_count < 1:
+            raise ValueError(
+                "Application count must be at least 1."
+            )
+
+        result = db.execute(
+            text("""
+                UPDATE candidates
+                SET application_count = :application_count
+                WHERE candidate_id = :candidate_id
+            """),
+            {
+                "candidate_id": candidate_id,
+                "application_count": application_count
+            }
+        )
+
+        if result.rowcount == 0:
+            raise ValueError("Candidate not found.")
+
+        db.commit()
+        return True
+
+    except ValueError:
+        db.rollback()
+        raise
+
     except SQLAlchemyError:
         db.rollback()
         raise ValueError(
-            "Unable to connect to the database.\nPlease try again."
+            "Unable to update application count."
         )
 
     finally:
@@ -64,6 +136,29 @@ def update_candidate_record(candidate_id, candidate_data):
     params["candidate_id"] = candidate_id
 
     try:
+        # Check whether another candidate already has the same
+        # first name + last name + email + phone + position/role.
+        existing = db.execute(
+            text("""
+                SELECT candidate_id
+                FROM candidates
+                WHERE first_name = :first_name
+                  AND last_name = :last_name
+                  AND email = :email
+                  AND phone = :phone
+                  AND position_role = :position_role
+                  AND candidate_id != :candidate_id
+                LIMIT 1
+            """),
+            params
+        ).fetchone()
+
+        if existing is not None:
+            raise ValueError(
+                "Another candidate with the same first name, last name, "
+                "email, phone, and position/role already exists."
+            )
+
         result = db.execute(
             text("""
                 UPDATE candidates
@@ -86,23 +181,12 @@ def update_candidate_record(candidate_id, candidate_data):
         if result.rowcount == 0:
             raise ValueError("Candidate not found.")
 
-        db.execute(
-            text("""
-                UPDATE interview_responses
-                SET
-                    status = 'Pending',
-                    sent_at = NULL,
-                    notification_processing_at = NULL
-                WHERE candidate_id = :candidate_id
-                  AND status = 'Reschedule Requested'
-            """),
-            {
-                "candidate_id": candidate_id
-            }
-        )
-
         db.commit()
         return True
+
+    except ValueError:
+        db.rollback()
+        raise
 
     except IntegrityError:
         db.rollback()
@@ -118,7 +202,6 @@ def update_candidate_record(candidate_id, candidate_data):
 
     finally:
         db.close()
-   
 
 
 def delete_candidate(candidate_id):
@@ -206,6 +289,7 @@ def select_all_candidates(
             """)
 
         where_sql = ""
+
         if where:
             where_sql = "WHERE " + " AND ".join(where)
 
@@ -222,6 +306,8 @@ def select_all_candidates(
                 c.interview_level,
                 c.interview_duration,
                 c.scheduled_datetime,
+                c.application_count,
+                c.created_at,
                 ir.response_id,
                 ir.status AS response_status,
                 ir.sent_at AS response_sent_at
@@ -232,10 +318,14 @@ def select_all_candidates(
             ORDER BY c.candidate_id
         """
 
-        result = db.execute(text(sql), params)
+        result = db.execute(
+            text(sql),
+            params
+        )
+
         return result.fetchall()
 
-    except SQLAlchemyError as e:
+    except SQLAlchemyError:
         raise ValueError(
             "Unable to retrieve candidates from the database.\nPlease try again."
         )
@@ -254,7 +344,10 @@ def select_hr_list():
             ORDER BY assigned_hr
         """))
 
-        return [row[0] for row in result.fetchall()]
+        return [
+            row[0]
+            for row in result.fetchall()
+        ]
 
     finally:
         db.close()
@@ -270,7 +363,10 @@ def select_position_list():
             ORDER BY position_role
         """))
 
-        return [row[0] for row in result.fetchall()]
+        return [
+            row[0]
+            for row in result.fetchall()
+        ]
 
     finally:
         db.close()
@@ -280,32 +376,84 @@ def select_dashboard_summary():
     db = SessionLocal()
 
     try:
+        # ---------------------------------------------------------
+        # CURRENT MONTH SUMMARY
+        #
+        # Only candidates created during the current calendar
+        # month are included in these metrics.
+        # ---------------------------------------------------------
         summary = db.execute(
             text("""
                 SELECT
                     COUNT(*) AS total_candidates,
-                    COUNT(CASE WHEN interview_type = 'VIRTUAL' THEN 1 END) AS virtual_count,
-                    COUNT(CASE WHEN interview_type = 'OVER-THE-PHONE' THEN 1 END) AS phone_count,
-                    COUNT(CASE WHEN interview_type = 'ONSITE' THEN 1 END) AS onsite_count
+
+                    COUNT(
+                        CASE
+                            WHEN interview_type = 'VIRTUAL'
+                            THEN 1
+                        END
+                    ) AS virtual_count,
+
+                    COUNT(
+                        CASE
+                            WHEN interview_type = 'OVER-THE-PHONE'
+                            THEN 1
+                        END
+                    ) AS phone_count,
+
+                    COUNT(
+                        CASE
+                            WHEN interview_type = 'ONSITE'
+                            THEN 1
+                        END
+                    ) AS onsite_count
+
                 FROM candidates
+
+                WHERE created_at >= DATE_FORMAT(
+                    CURDATE(),
+                    '%Y-%m-01'
+                )
+
+                AND created_at < DATE_ADD(
+                    DATE_FORMAT(
+                        CURDATE(),
+                        '%Y-%m-01'
+                    ),
+                    INTERVAL 1 MONTH
+                )
             """)
         ).mappings().one()
 
+        # ---------------------------------------------------------
+        # UPCOMING INTERVIEWS TODAY
+        # ---------------------------------------------------------
         upcoming_today = db.execute(
             text("""
                 SELECT COUNT(*)
                 FROM candidates
-                WHERE scheduled_datetime BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-            """
-        )).scalar_one()
+                WHERE scheduled_datetime >= CURDATE()
+                  AND scheduled_datetime < DATE_ADD(
+                      CURDATE(),
+                      INTERVAL 1 DAY
+                  )
+            """)
+        ).scalar_one()
 
+        # ---------------------------------------------------------
+        # UPCOMING INTERVIEWS FOR THE NEXT 7 DAYS
+        # ---------------------------------------------------------
         upcoming_week = db.execute(
             text("""
                 SELECT COUNT(*)
                 FROM candidates
-                WHERE scheduled_datetime BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)
-            """
-        )).scalar_one()
+                WHERE scheduled_datetime >= NOW()
+                  AND scheduled_datetime < DATE_ADD(
+                      NOW(),
+                      INTERVAL 7 DAY
+                  )
+            """)
+        ).scalar_one()
 
         return {
             "total_candidates": summary["total_candidates"],
@@ -317,7 +465,9 @@ def select_dashboard_summary():
         }
 
     except SQLAlchemyError:
-        raise ValueError("Unable to retrieve dashboard metrics.")
+        raise ValueError(
+            "Unable to retrieve dashboard metrics."
+        )
 
     finally:
         db.close()
@@ -349,7 +499,9 @@ def select_upcoming_interviews(limit=10):
         return result.fetchall()
 
     except SQLAlchemyError:
-        raise ValueError("Unable to retrieve upcoming interviews.")
+        raise ValueError(
+            "Unable to retrieve upcoming interviews."
+        )
 
     finally:
         db.close()
@@ -369,13 +521,18 @@ def select_candidate_by_id(candidate_id):
         )
 
         candidate = result.fetchone()
+
         if candidate is None:
-            raise ValueError("Candidate not found.")
+            raise ValueError(
+                "Candidate not found."
+            )
 
         return candidate
 
     except SQLAlchemyError:
-        raise ValueError("Unable to retrieve candidate.")
+        raise ValueError(
+            "Unable to retrieve candidate."
+        )
 
     finally:
         db.close()
