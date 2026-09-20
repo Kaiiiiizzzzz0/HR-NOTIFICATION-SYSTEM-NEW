@@ -1,6 +1,6 @@
 from .validation import validate_candidate_fields
 
-from .candidate_repository import (
+from repositories.candidate_repository import (
     delete_candidate as repo_delete_candidate,
     insert_candidate,
     select_all_candidates,
@@ -13,7 +13,7 @@ from .candidate_repository import (
     update_application_count,
 )
 
-from .response_repository import (
+from repositories.response_repository import (
     insert_interview_response
 )
 
@@ -97,11 +97,25 @@ def get_dashboard_summary():
 
 
 def get_upcoming_interviews(
-    limit=10
+    limit=10,
+    interview_type="All",
+    interview_level="All",
+    assigned_hr="All",
+    position_role="All",
+    start_date="",
+    end_date="",
+    search_text=""
 ):
 
     return select_upcoming_interviews(
-        limit
+        limit,
+        interview_type,
+        interview_level,
+        assigned_hr,
+        position_role,
+        start_date,
+        end_date,
+        search_text
     )
 
 

@@ -1,233 +1,128 @@
+
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
     QPushButton,
     QVBoxLayout,
     QGridLayout,
+    QHBoxLayout,
     QTableWidget,
     QTableWidgetItem,
     QGroupBox,
     QAbstractItemView,
-    QMessageBox
+    QMessageBox,
+    QHeaderView,
+    QDialog
 )
+
+from sqlalchemy import text
+
+from database import SessionLocal
 
 from services.candidate import (
     get_dashboard_summary,
-    get_upcoming_interviews
+    get_upcoming_interviews,
+    get_hr_list,
+    get_position_list
 )
 
-from services.response import (
-    get_response_status_summary,
-    get_recent_responses
-)
-
-from services.email_creator.scheduler import (
-    dispatch_pending_notifications
-)
+from views.filter_dialog import FilterDialog
+from views.weekly_report_dialog import WeeklyReportDialog
 
 
 class DashboardWindow(QWidget):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-        self.setWindowTitle("HR Dashboard")
-        self.resize(1200, 750)
+        self.filter_type = "All"
+        self.filter_level = "All"
+        self.filter_hr = "All"
+        self.filter_position = "All"
+        self.start_date = ""
+        self.end_date = ""
+        self.search_text = ""
 
         self.setup_ui()
         self.load_data()
 
     def setup_ui(self):
 
-        # ---------------------------------------------------------
-        # MONTHLY SUMMARY
-        # ---------------------------------------------------------
+        self.setWindowTitle("Dashboard")
 
-        self.monthly_summary_label = QLabel(
-            "Current Month"
-        )
+        layout = QVBoxLayout(self)
 
-        self.total_candidates = QLabel("0")
-        self.virtual_count = QLabel("0")
-        self.phone_count = QLabel("0")
-        self.onsite_count = QLabel("0")
+        # =========================
+        # SUMMARY
+        # =========================
 
-        self.upcoming_today = QLabel("0")
-        self.upcoming_week = QLabel("0")
-
+        summary_group = QGroupBox("Monthly Summary")
         summary_layout = QGridLayout()
 
-        summary_layout.addWidget(
-            self.monthly_summary_label,
-            0,
-            0,
-            1,
-            6
-        )
+        self.total_label = QLabel("0")
+        self.confirmed_label = QLabel("0")
+        self.declined_label = QLabel("0")
+        self.pending_label = QLabel("0")
+        self.reschedule_label = QLabel("0")
 
         summary_layout.addWidget(
-            QLabel("Candidates Added This Month"),
-            1,
-            0
+            QLabel("Total Interviews"), 0, 0
         )
-
         summary_layout.addWidget(
-            self.total_candidates,
-            1,
-            1
+            self.total_label, 0, 1
         )
 
         summary_layout.addWidget(
-            QLabel("Virtual Interviews"),
-            1,
-            2
+            QLabel("Confirmed"), 0, 2
+        )
+        summary_layout.addWidget(
+            self.confirmed_label, 0, 3
         )
 
         summary_layout.addWidget(
-            self.virtual_count,
-            1,
-            3
+            QLabel("Declined"), 1, 0
+        )
+        summary_layout.addWidget(
+            self.declined_label, 1, 1
         )
 
         summary_layout.addWidget(
-            QLabel("Over-the-Phone"),
-            1,
-            4
+            QLabel("Pending"), 1, 2
+        )
+        summary_layout.addWidget(
+            self.pending_label, 1, 3
         )
 
         summary_layout.addWidget(
-            self.phone_count,
-            1,
-            5
+            QLabel("Reschedule Requested"), 2, 0
         )
-
         summary_layout.addWidget(
-            QLabel("Onsite Interviews"),
-            2,
-            0
+            self.reschedule_label, 2, 1
         )
 
-        summary_layout.addWidget(
-            self.onsite_count,
-            2,
-            1
-        )
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group)
 
-        summary_layout.addWidget(
-            QLabel("Upcoming Today"),
-            2,
-            2
-        )
+        # =========================
+        # UPCOMING INTERVIEWS
+        # =========================
 
-        summary_layout.addWidget(
-            self.upcoming_today,
-            2,
-            3
-        )
-
-        summary_layout.addWidget(
-            QLabel("Upcoming This Week"),
-            2,
-            4
-        )
-
-        summary_layout.addWidget(
-            self.upcoming_week,
-            2,
-            5
-        )
-
-        summary_group = QGroupBox(
-            "Monthly Summary"
-        )
-
-        summary_group.setLayout(
-            summary_layout
-        )
-
-        # ---------------------------------------------------------
-        # RESPONSE STATUS
-        # ---------------------------------------------------------
-
-        self.pending_count = QLabel("0")
-        self.confirmed_count = QLabel("0")
-        self.declined_count = QLabel("0")
-        self.reschedule_count = QLabel("0")
-
-        status_layout = QGridLayout()
-
-        status_layout.addWidget(
-            QLabel("Pending Responses"),
-            0,
-            0
-        )
-
-        status_layout.addWidget(
-            self.pending_count,
-            0,
-            1
-        )
-
-        status_layout.addWidget(
-            QLabel("Confirmed"),
-            0,
-            2
-        )
-
-        status_layout.addWidget(
-            self.confirmed_count,
-            0,
-            3
-        )
-
-        status_layout.addWidget(
-            QLabel("Declined"),
-            1,
-            0
-        )
-
-        status_layout.addWidget(
-            self.declined_count,
-            1,
-            1
-        )
-
-        status_layout.addWidget(
-            QLabel("Reschedule Requested"),
-            1,
-            2
-        )
-
-        status_layout.addWidget(
-            self.reschedule_count,
-            1,
-            3
-        )
-
-        response_group = QGroupBox(
-            "Response Status"
-        )
-
-        response_group.setLayout(
-            status_layout
-        )
-
-        # ---------------------------------------------------------
-        # UPCOMING INTERVIEWS TABLE
-        # ---------------------------------------------------------
+        upcoming_group = QGroupBox("Upcoming Interviews")
+        upcoming_layout = QVBoxLayout()
 
         self.upcoming_table = QTableWidget()
 
-        self.upcoming_table.setColumnCount(7)
+        self.upcoming_table.setColumnCount(8)
 
         self.upcoming_table.setHorizontalHeaderLabels([
-            "ID",
-            "Candidate",
-            "Position",
+            "Candidate ID",
+            "First Name",
+            "Last Name",
             "Email",
             "Assigned HR",
-            "Modality",
-            "Schedule"
+            "Position",
+            "Interview Type",
+            "Scheduled Date/Time"
         ])
 
         self.upcoming_table.setEditTriggers(
@@ -238,24 +133,47 @@ class DashboardWindow(QWidget):
             QAbstractItemView.SelectRows
         )
 
-        self.upcoming_table.setSelectionMode(
-            QAbstractItemView.SingleSelection
+        self.upcoming_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
         )
 
-        # ---------------------------------------------------------
-        # RECENT RESPONSES TABLE
-        # ---------------------------------------------------------
+        upcoming_layout.addWidget(
+            self.upcoming_table
+        )
+
+        upcoming_group.setLayout(
+            upcoming_layout
+        )
+
+        layout.addWidget(
+            upcoming_group
+        )
+
+        # =========================
+        # RECENT INTERVIEWS
+        # =========================
+
+        recent_group = QGroupBox("Recent Interviews")
+        recent_layout = QVBoxLayout()
 
         self.recent_table = QTableWidget()
 
-        self.recent_table.setColumnCount(5)
+        self.recent_table.setColumnCount(13)
 
         self.recent_table.setHorizontalHeaderLabels([
-            "Response ID",
-            "Candidate",
+            "Candidate ID",
+            "First Name",
+            "Last Name",
+            "Email",
+            "Assigned HR",
+            "Position",
+            "Interview Type",
+            "Interview Level",
+            "Interview Duration",
+            "Scheduled Date/Time",
             "Status",
-            "Schedule",
-            "Responded At"
+            "Responded At",
+            "Attempts"
         ])
 
         self.recent_table.setEditTriggers(
@@ -266,13 +184,41 @@ class DashboardWindow(QWidget):
             QAbstractItemView.SelectRows
         )
 
-        self.recent_table.setSelectionMode(
-            QAbstractItemView.SingleSelection
+        self.recent_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
         )
 
-        # ---------------------------------------------------------
-        # REFRESH
-        # ---------------------------------------------------------
+        recent_layout.addWidget(
+            self.recent_table
+        )
+
+        recent_group.setLayout(
+            recent_layout
+        )
+
+        layout.addWidget(
+            recent_group
+        )
+
+        # =========================
+        # BUTTONS
+        # =========================
+
+        self.weekly_report_btn = QPushButton(
+            "Weekly Report"
+        )
+
+        self.weekly_report_btn.clicked.connect(
+            self.open_weekly_report_dialog
+        )
+
+        self.filter_btn = QPushButton(
+            "Filter"
+        )
+
+        self.filter_btn.clicked.connect(
+            self.open_filter_dialog
+        )
 
         self.refresh_btn = QPushButton(
             "Refresh Dashboard"
@@ -282,355 +228,239 @@ class DashboardWindow(QWidget):
             self.load_data
         )
 
-        # ---------------------------------------------------------
-        # MAIN LAYOUT
-        # ---------------------------------------------------------
+        bottom_buttons = QHBoxLayout()
 
-        layout = QVBoxLayout()
+        bottom_buttons.addStretch()
 
-        layout.addWidget(
-            summary_group
+        bottom_buttons.addWidget(
+            self.weekly_report_btn
         )
 
-        layout.addWidget(
-            response_group
+        bottom_buttons.addWidget(
+            self.filter_btn
         )
 
-        layout.addWidget(
-            QLabel("Upcoming Interviews")
-        )
-
-        layout.addWidget(
-            self.upcoming_table
-        )
-
-        layout.addWidget(
-            QLabel("Recent Interview Responses")
-        )
-
-        layout.addWidget(
-            self.recent_table
-        )
-
-        layout.addWidget(
+        bottom_buttons.addWidget(
             self.refresh_btn
         )
 
-        self.setLayout(
-            layout
+        layout.addLayout(
+            bottom_buttons
         )
+
+    # =========================
+    # WEEKLY REPORT
+    # =========================
+
+    def open_weekly_report_dialog(self):
+
+        dialog = WeeklyReportDialog(self)
+
+        dialog.exec()
+
+    # =========================
+    # FILTER
+    # =========================
+
+    def open_filter_dialog(self):
+
+        filters = {
+            "search": self.search_text,
+            "type": self.filter_type,
+            "level": self.filter_level,
+            "hr": self.filter_hr,
+            "position": self.filter_position,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "hr_list": get_hr_list(),
+            "position_list": get_position_list()
+        }
+
+        dialog = FilterDialog(
+            self,
+            current_filters=filters
+        )
+
+        if dialog.exec() == QDialog.Accepted:
+
+            selected_filters = (
+                dialog.get_filters()
+            )
+
+            self.filter_type = (
+                selected_filters["type"]
+            )
+
+            self.filter_level = (
+                selected_filters["level"]
+            )
+
+            self.filter_hr = (
+                selected_filters["hr"]
+            )
+
+            self.filter_position = (
+                selected_filters["position"]
+            )
+
+            self.start_date = (
+                selected_filters["start_date"]
+            )
+
+            self.end_date = (
+                selected_filters["end_date"]
+            )
+
+            self.search_text = (
+                selected_filters["search"]
+            )
+
+            self.load_data()
+
+    # =========================
+    # LOAD DATA
+    # =========================
 
     def load_data(self):
 
         try:
 
-            # -----------------------------------------------------
+            # =========================
             # MONTHLY SUMMARY
-            # -----------------------------------------------------
+            # =========================
 
             summary = get_dashboard_summary()
 
-            self.total_candidates.setText(
-                str(
-                    summary["total_candidates"]
-                )
+            self.total_label.setText(
+                str(summary["total"])
             )
 
-            self.virtual_count.setText(
-                str(
-                    summary["virtual_count"]
-                )
+            self.confirmed_label.setText(
+                str(summary["confirmed"])
             )
 
-            self.phone_count.setText(
-                str(
-                    summary["phone_count"]
-                )
+            self.declined_label.setText(
+                str(summary["declined"])
             )
 
-            self.onsite_count.setText(
-                str(
-                    summary["onsite_count"]
-                )
+            self.pending_label.setText(
+                str(summary["pending"])
             )
 
-            self.upcoming_today.setText(
-                str(
-                    summary["upcoming_today"]
-                )
+            self.reschedule_label.setText(
+                str(summary["reschedule_requested"])
             )
 
-            self.upcoming_week.setText(
-                str(
-                    summary["upcoming_week"]
-                )
-            )
-
-            # -----------------------------------------------------
-            # RESPONSE STATUS
-            # -----------------------------------------------------
-
-            response_summary = (
-                get_response_status_summary()
-            )
-
-            self.pending_count.setText(
-                str(
-                    response_summary.get(
-                        "Pending",
-                        0
-                    )
-                )
-            )
-
-            self.confirmed_count.setText(
-                str(
-                    response_summary.get(
-                        "Confirmed",
-                        0
-                    )
-                )
-            )
-
-            self.declined_count.setText(
-                str(
-                    response_summary.get(
-                        "Declined",
-                        0
-                    )
-                )
-            )
-
-            self.reschedule_count.setText(
-                str(
-                    response_summary.get(
-                        "Reschedule Requested",
-                        0
-                    )
-                )
-            )
-
-            # -----------------------------------------------------
+            # =========================
             # UPCOMING INTERVIEWS
-            # -----------------------------------------------------
+            # =========================
 
-            upcoming_rows = (
-                get_upcoming_interviews(15)
+            upcoming = get_upcoming_interviews(
+                15,
+                self.filter_type,
+                self.filter_level,
+                self.filter_hr,
+                self.filter_position,
+                self.start_date,
+                self.end_date,
+                self.search_text
             )
 
             self.upcoming_table.setRowCount(
-                len(upcoming_rows)
+                len(upcoming)
             )
 
-            for row_index, row in enumerate(
-                upcoming_rows
-            ):
+            for row_index, row in enumerate(upcoming):
 
-                (
-                    candidate_id,
-                    first_name,
-                    last_name,
-                    email,
-                    assigned_hr,
-                    position_role,
-                    interview_type,
-                    schedule
-                ) = row
+                for column_index, value in enumerate(row):
 
-                self.upcoming_table.setItem(
-                    row_index,
-                    0,
-                    QTableWidgetItem(
-                        str(candidate_id)
+                    item = QTableWidgetItem(
+                        str(value)
+                        if value is not None
+                        else ""
                     )
-                )
 
-                self.upcoming_table.setItem(
-                    row_index,
-                    1,
-                    QTableWidgetItem(
-                        f"{first_name} {last_name}"
+                    self.upcoming_table.setItem(
+                        row_index,
+                        column_index,
+                        item
                     )
-                )
 
-                self.upcoming_table.setItem(
-                    row_index,
-                    2,
-                    QTableWidgetItem(
-                        position_role
-                    )
-                )
+            # =========================
+            # RECENT INTERVIEWS
+            # =========================
 
-                self.upcoming_table.setItem(
-                    row_index,
-                    3,
-                    QTableWidgetItem(
-                        email
-                    )
-                )
-
-                self.upcoming_table.setItem(
-                    row_index,
-                    4,
-                    QTableWidgetItem(
-                        assigned_hr
-                    )
-                )
-
-                self.upcoming_table.setItem(
-                    row_index,
-                    5,
-                    QTableWidgetItem(
-                        interview_type
-                    )
-                )
-
-                self.upcoming_table.setItem(
-                    row_index,
-                    6,
-                    QTableWidgetItem(
-                        str(schedule)
-                    )
-                )
-
-            # -----------------------------------------------------
-            # RECENT RESPONSES
-            # -----------------------------------------------------
-
-            recent_rows = (
-                get_recent_responses(10)
-            )
+            recent = self.get_recent_interviews()
 
             self.recent_table.setRowCount(
-                len(recent_rows)
+                len(recent)
             )
 
-            for row_index, row in enumerate(
-                recent_rows
-            ):
+            for row_index, row in enumerate(recent):
 
-                (
-                    response_id,
-                    first_name,
-                    last_name,
-                    status,
-                    schedule,
-                    responded_at
-                ) = row
+                for column_index, value in enumerate(row):
 
-                self.recent_table.setItem(
-                    row_index,
-                    0,
-                    QTableWidgetItem(
-                        str(response_id)
+                    item = QTableWidgetItem(
+                        str(value)
+                        if value is not None
+                        else ""
                     )
-                )
 
-                self.recent_table.setItem(
-                    row_index,
-                    1,
-                    QTableWidgetItem(
-                        f"{first_name} {last_name}"
+                    self.recent_table.setItem(
+                        row_index,
+                        column_index,
+                        item
                     )
-                )
-
-                self.recent_table.setItem(
-                    row_index,
-                    2,
-                    QTableWidgetItem(
-                        status
-                    )
-                )
-
-                self.recent_table.setItem(
-                    row_index,
-                    3,
-                    QTableWidgetItem(
-                        str(schedule)
-                    )
-                )
-
-                self.recent_table.setItem(
-                    row_index,
-                    4,
-                    QTableWidgetItem(
-                        str(responded_at)
-                        if responded_at
-                        else "-"
-                    )
-                )
 
         except Exception as e:
 
             QMessageBox.critical(
                 self,
                 "Dashboard Error",
-                f"Unable to load dashboard:\n{e}"
+                str(e)
             )
 
-    def send_pending_notifications(self):
+    # =========================
+    # RECENT INTERVIEWS
+    # =========================
+
+    def get_recent_interviews(self):
+
+        db = SessionLocal()
 
         try:
 
-            results = (
-                dispatch_pending_notifications()
-            )
+            query = text("""
+                SELECT
+                    c.candidate_id,
+                    c.first_name,
+                    c.last_name,
+                    c.email,
+                    c.assigned_hr,
+                    c.position_role,
+                    c.interview_type,
+                    c.interview_level,
+                    c.interview_duration,
+                    c.scheduled_datetime,
+                    ir.status,
+                    ir.responded_at,
+                    ir.attempts
 
-            sent_count = sum(
-                1
-                for item in results
-                if item.get("success")
-            )
+                FROM interview_responses ir
 
-            failed_count = (
-                len(results) - sent_count
-            )
+                INNER JOIN candidates c
+                    ON ir.candidate_id = c.candidate_id
 
-            if len(results) == 0:
+                ORDER BY ir.response_id DESC
 
-                message = (
-                    "No pending notifications were found.\n"
-                    "Make sure candidates have status set to "
-                    "'Pending' and have not already been sent."
-                )
+                LIMIT 15
+            """)
 
-            else:
+            result = db.execute(query)
 
-                message = (
-                    f"Notifications processed: "
-                    f"{len(results)}\n"
-                    f"Sent: {sent_count}\n"
-                    f"Failed: {failed_count}"
-                )
+            return result.fetchall()
 
-                if failed_count > 0:
+        finally:
 
-                    first_error = next(
-                        (
-                            item.get("error")
-                            for item in results
-                            if not item.get("success")
-                        ),
-                        None
-                    )
+            db.close()
 
-                    if first_error:
-
-                        message += (
-                            f"\nFirst failure: "
-                            f"{first_error}"
-                        )
-
-            QMessageBox.information(
-                self,
-                "Send Pending Notifications",
-                message
-            )
-
-        except Exception as e:
-
-            QMessageBox.critical(
-                self,
-                "Send Pending Notifications Failed",
-                str(e)
-            )

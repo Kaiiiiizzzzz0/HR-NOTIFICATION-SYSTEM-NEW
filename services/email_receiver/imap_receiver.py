@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from email.header import decode_header
 from email.utils import parseaddr
 
-from services.response_repository import (
+from repositories.response_repository import (
     find_candidate_by_email as find_candidate_id_by_email,
     save_incoming_reply
 )

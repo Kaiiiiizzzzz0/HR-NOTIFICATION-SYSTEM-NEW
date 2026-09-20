@@ -2,10 +2,11 @@ import time
 
 from .emailer import send_email
 
-from services.response_repository import (
+from repositories.response_repository import (
     select_pending_notification_candidates,
     mark_notification_processing,
     mark_notification_sent,
+    reset_notification_processing,
 )
 
 
@@ -18,17 +19,18 @@ def dispatch_pending_notifications(
 ):
 
     if edited_emails is None:
+
         edited_emails = {}
 
     candidates = (
         select_pending_notification_candidates()
     )
 
-    # If specific candidates were selected manually,
-    # keep only those candidates.
     if candidate_ids is not None:
 
-        candidate_ids = set(candidate_ids)
+        candidate_ids = set(
+            candidate_ids
+        )
 
         candidates = [
             candidate
@@ -43,7 +45,9 @@ def dispatch_pending_notifications(
 
     for candidate in candidates:
 
-        candidate_data = dict(candidate)
+        candidate_data = dict(
+            candidate
+        )
 
         response_id = (
             candidate_data.get("response_id")
@@ -54,22 +58,25 @@ def dispatch_pending_notifications(
         )
 
         if response_id is None:
+
             continue
 
-        # Use the edited email if HR saved one
-        # for this candidate.
         if candidate_id in edited_emails:
 
             edited_email = (
                 edited_emails[candidate_id]
             )
 
-            candidate_data["edited_subject"] = (
-                edited_email.get("subject")
+            candidate_data[
+                "edited_subject"
+            ] = edited_email.get(
+                "subject"
             )
 
-            candidate_data["edited_body"] = (
-                edited_email.get("body")
+            candidate_data[
+                "edited_body"
+            ] = edited_email.get(
+                "body"
             )
 
         try:
@@ -80,7 +87,7 @@ def dispatch_pending_notifications(
                 )
             )
 
-        except Exception as e:
+        except Exception as error:
 
             results.append({
                 "success": False,
@@ -88,7 +95,7 @@ def dispatch_pending_notifications(
                 "response_id": response_id,
                 "error": (
                     "Failed to mark notification "
-                    f"as processing: {e}"
+                    f"as processing: {error}"
                 )
             })
 
@@ -101,8 +108,8 @@ def dispatch_pending_notifications(
                 "candidate_id": candidate_id,
                 "response_id": response_id,
                 "error": (
-                    "Notification could not be marked "
-                    "as processing."
+                    "Notification could not be "
+                    "marked as processing."
                 )
             })
 
@@ -114,13 +121,13 @@ def dispatch_pending_notifications(
                 candidate_data
             )
 
-        except Exception as e:
+        except Exception as error:
 
             send_result = {
                 "success": False,
                 "candidate_id": candidate_id,
                 "response_id": response_id,
-                "error": str(e)
+                "error": str(error)
             }
 
         if send_result.get("success"):
@@ -141,15 +148,31 @@ def dispatch_pending_notifications(
                     f"{update_error}"
                 )
 
+        else:
+
+            try:
+
+                reset_notification_processing(
+                    response_id
+                )
+
+            except Exception as reset_error:
+
+                send_result["error"] = (
+                    f"{send_result.get('error', 'Email failed')}; "
+                    f"failed to reset processing state: "
+                    f"{reset_error}"
+                )
+
         results.append(
             send_result
         )
 
         processed_count += 1
 
-        # Wait between actual processing attempts
-        # to avoid sending emails too rapidly.
-        if processed_count < len(candidates):
+        if processed_count < len(
+            candidates
+        ):
 
             time.sleep(
                 SEND_DELAY

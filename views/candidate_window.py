@@ -1,4 +1,4 @@
-
+from views.candidate_selection import CandidateSelection
 from PySide6.QtWidgets import (
     QWidget,
     QPushButton,
@@ -23,7 +23,7 @@ from services.email_creator.message_templates import (
     build_email_content
 )
 
-from services.response_repository import (
+from repositories.response_repository import (
     select_sent_email,
     update_response_status_by_candidate
 )
@@ -55,6 +55,7 @@ class CandidateWindow(QWidget):
         self.search_text = ""
 
         self.edited_emails = {}
+        self.selection = CandidateSelection(self)
 
         self.setup_ui()
         self.load_candidates()
@@ -120,19 +121,19 @@ class CandidateWindow(QWidget):
         )
 
         self.select_candidates_btn.clicked.connect(
-            self.enter_selection_mode
+            self.selection.enter_selection_mode
         )
 
         self.select_all_btn.clicked.connect(
-            self.select_all_candidates
+            self.selection.select_all_candidates
         )
 
         self.send_selected_btn.clicked.connect(
-            self.send_selected_notifications
+            self.selection.send_selected_notifications
         )
 
         self.cancel_selection_btn.clicked.connect(
-            self.exit_selection_mode
+            self.selection.exit_selection_mode
         )
 
         button_row = QHBoxLayout()
@@ -160,7 +161,7 @@ class CandidateWindow(QWidget):
         )
 
         self.table.table.itemChanged.connect(
-            self.selection_checkbox_changed
+            self.selection.selection_checkbox_changed
         )
 
         self.table.status_changed.connect(
@@ -790,246 +791,22 @@ class CandidateWindow(QWidget):
         )
 
     def enter_selection_mode(self):
-
-        self.table.set_selection_mode(
-            True
-        )
-
-        self.set_status_dropdowns_enabled(
-            False
-        )
-
-        self.add_btn.setEnabled(
-            False
-        )
-
-        self.update_btn.setEnabled(
-            False
-        )
-
-        self.preview_btn.setEnabled(
-            False
-        )
-
-        self.send_notifications_btn.setEnabled(
-            False
-        )
-
-        self.delete_btn.setEnabled(
-            False
-        )
-
-        self.refresh_btn.setEnabled(
-            False
-        )
-
-        self.filter_btn.setEnabled(
-            False
-        )
-
-        self.select_candidates_btn.setVisible(
-            False
-        )
-
-        self.select_all_btn.setVisible(
-            True
-        )
-
-        self.send_selected_btn.setVisible(
-            True
-        )
-
-        self.cancel_selection_btn.setVisible(
-            True
-        )
-
-        self.send_selected_btn.setEnabled(
-            False
-        )
+        self.selection.enter_selection_mode()
 
     def exit_selection_mode(self):
+        self.selection.exit_selection_mode()
 
-        self.table.set_selection_mode(
-            False
-        )
-
-        self.set_status_dropdowns_enabled(
-            True
-        )
-
-        self.add_btn.setEnabled(
-            True
-        )
-
-        self.update_btn.setEnabled(
-            False
-        )
-
-        self.preview_btn.setEnabled(
-            True
-        )
-
-        self.send_notifications_btn.setEnabled(
-            True
-        )
-
-        self.delete_btn.setEnabled(
-            False
-        )
-
-        self.refresh_btn.setEnabled(
-            True
-        )
-
-        self.filter_btn.setEnabled(
-            True
-        )
-
-        self.select_candidates_btn.setVisible(
-            True
-        )
-
-        self.select_all_btn.setVisible(
-            False
-        )
-
-        self.send_selected_btn.setVisible(
-            False
-        )
-
-        self.cancel_selection_btn.setVisible(
-            False
-        )
-
-        self.clear_form()
-
-    def set_status_dropdowns_enabled(
-        self,
-        enabled
-    ):
-
-        for row in range(
-            self.table.table.rowCount()
-        ):
-
-            combo = self.table.table.cellWidget(
-                row,
-                13
-            )
-
-            if combo is not None:
-
-                combo.setEnabled(
-                    enabled
-                )
+    def set_status_dropdowns_enabled(self, enabled):
+        self.selection.set_status_dropdowns_enabled(enabled)
 
     def select_all_candidates(self):
+        self.selection.select_all_candidates()
 
-        if not self.table.selection_mode:
-            return
-
-        self.table.check_all_candidates()
-
-        self.update_send_selected_button()
-
-    def selection_checkbox_changed(
-        self,
-        item
-    ):
-
-        if item.column() != 0:
-            return
-
-        if not self.table.selection_mode:
-            return
-
-        self.update_send_selected_button()
+    def selection_checkbox_changed(self, item):
+        self.selection.selection_checkbox_changed(item)
 
     def update_send_selected_button(self):
-
-        count = (
-            self.table.checked_count()
-        )
-
-        self.send_selected_btn.setText(
-            f"Send Selected ({count})"
-        )
-
-        self.send_selected_btn.setEnabled(
-            count > 0
-        )
+        self.selection.update_send_selected_button()
 
     def send_selected_notifications(self):
-
-        if not self.table.selection_mode:
-            return
-
-        candidate_ids = (
-            self.table.get_checked_candidate_ids()
-        )
-
-        if not candidate_ids:
-
-            QMessageBox.warning(
-                self,
-                "Selection Required",
-                "Please select at least one candidate."
-            )
-
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "Confirm Send",
-            (
-                f"Send notifications to "
-                f"{len(candidate_ids)} selected "
-                f"candidate(s)?"
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply != QMessageBox.Yes:
-            return
-
-        try:
-
-            results = (
-                dispatch_pending_notifications(
-                    edited_emails=self.edited_emails,
-                    candidate_ids=candidate_ids
-                )
-            )
-
-            sent_count = sum(
-                1
-                for item in results
-                if item.get("success")
-            )
-
-            failed_count = (
-                len(results) - sent_count
-            )
-
-            QMessageBox.information(
-                self,
-                "Send Selected Notifications",
-                (
-                    f"Notifications processed: "
-                    f"{len(results)}\n"
-                    f"Sent: {sent_count}\n"
-                    f"Failed: {failed_count}"
-                )
-            )
-
-            self.exit_selection_mode()
-            self.load_candidates()
-
-        except Exception as e:
-
-            QMessageBox.critical(
-                self,
-                "Send Selected Notifications Failed",
-                str(e)
-            )
+        self.selection.send_selected_notifications()

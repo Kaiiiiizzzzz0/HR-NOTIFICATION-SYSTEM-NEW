@@ -11,16 +11,17 @@ from PySide6.QtWidgets import (
     QComboBox,
     QMessageBox,
     QGroupBox,
-    QAbstractItemView
+    QAbstractItemView,
+    QHeaderView
 )
 
 from services.response import (
-    get_all_responses,
-    update_response
+    get_all_responses
 )
 
 from services.email_receiver.imap_receiver import check_inbox
 from PySide6.QtCore import QTimer
+
 
 class ResponseWindow(QWidget):
 
@@ -32,37 +33,40 @@ class ResponseWindow(QWidget):
 
         self.selected_response_id = None
         self.response_rows = []
+        self.filtered_rows = []
 
         self.setup_ui()
         self.load_responses()
 
         self.imap_timer = QTimer(self)
-        self.imap_timer.timeout.connect(self.check_incoming_emails)
+        self.imap_timer.timeout.connect(
+            self.check_incoming_emails
+        )
         self.imap_timer.start(30000)
 
     def setup_ui(self):
 
-        
+        # =========================
         # TABLE
-        
+        # =========================
 
         self.table = QTableWidget()
         self.table.setColumnCount(12)
 
         self.table.setHorizontalHeaderLabels([
-    "Response ID",
-    "Candidate ID",
-    "First Name",
-    "Last Name",
-    "Email",
-    "Phone",
-    "Assigned HR",
-    "Interview Type",
-    "Interview Level",
-    "Interview Schedule",
-    "Status",
-    "Responded At"
-])
+            "Response ID",
+            "Candidate ID",
+            "First Name",
+            "Last Name",
+            "Email",
+            "Phone",
+            "Assigned HR",
+            "Interview Type",
+            "Interview Level",
+            "Interview Schedule",
+            "Status",
+            "Responded At"
+        ])
 
         self.table.setEditTriggers(
             QAbstractItemView.NoEditTriggers
@@ -80,18 +84,61 @@ class ResponseWindow(QWidget):
             self.select_response
         )
 
-       
+        # Make all columns use the full
+        # horizontal space of the table.
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+
+        # =========================
+        # APPLICANT DETAILS
+        # =========================
+
         details_group = QGroupBox(
             "Applicant Details"
         )
 
-        details_form = QFormLayout()
+        details_layout = QHBoxLayout()
+
+        # LEFT SIDE
+
+        left_form = QFormLayout()
 
         self.lbl_response_id = QLabel("-")
         self.lbl_candidate_id = QLabel("-")
         self.lbl_name = QLabel("-")
         self.lbl_email = QLabel("-")
         self.lbl_phone = QLabel("-")
+
+        left_form.addRow(
+            "Response ID",
+            self.lbl_response_id
+        )
+
+        left_form.addRow(
+            "Candidate ID",
+            self.lbl_candidate_id
+        )
+
+        left_form.addRow(
+            "Applicant",
+            self.lbl_name
+        )
+
+        left_form.addRow(
+            "Email",
+            self.lbl_email
+        )
+
+        left_form.addRow(
+            "Phone",
+            self.lbl_phone
+        )
+
+        # RIGHT SIDE
+
+        right_form = QFormLayout()
+
         self.lbl_hr = QLabel("-")
         self.lbl_type = QLabel("-")
         self.lbl_level = QLabel("-")
@@ -99,65 +146,52 @@ class ResponseWindow(QWidget):
         self.lbl_status = QLabel("-")
         self.lbl_responded_at = QLabel("-")
 
-        details_form.addRow(
-            "Response ID",
-            self.lbl_response_id
-        )
-
-        details_form.addRow(
-            "Candidate ID",
-            self.lbl_candidate_id
-        )
-
-        details_form.addRow(
-            "Applicant",
-            self.lbl_name
-        )
-
-        details_form.addRow(
-            "Email",
-            self.lbl_email
-        )
-        details_form.addRow(
-            "Phone",
-            self.lbl_phone
-        )
-
-        details_form.addRow(
+        right_form.addRow(
             "Assigned HR",
             self.lbl_hr
         )
 
-        details_form.addRow(
+        right_form.addRow(
             "Interview Type",
             self.lbl_type
         )
 
-        details_form.addRow(
+        right_form.addRow(
             "Interview Level",
             self.lbl_level
         )
 
-        details_form.addRow(
+        right_form.addRow(
             "Interview Schedule",
             self.lbl_schedule
         )
 
-        details_form.addRow(
+        right_form.addRow(
             "Current Status",
             self.lbl_status
         )
 
-        details_form.addRow(
+        right_form.addRow(
             "Responded At",
             self.lbl_responded_at
         )
 
-        details_group.setLayout(
-            details_form
+        details_layout.addLayout(
+            left_form
         )
 
-        
+        details_layout.addLayout(
+            right_form
+        )
+
+        details_group.setLayout(
+            details_layout
+        )
+
+        # =========================
+        # APPLICANT RESPONSE
+        # =========================
+
         message_group = QGroupBox(
             "Applicant Response"
         )
@@ -166,6 +200,7 @@ class ResponseWindow(QWidget):
         self.reply_message.setReadOnly(True)
 
         message_layout = QVBoxLayout()
+
         message_layout.addWidget(
             self.reply_message
         )
@@ -174,38 +209,28 @@ class ResponseWindow(QWidget):
             message_layout
         )
 
-        
-        # STATUS CONTROLS
-        
+        # =========================
+        # FILTER CONTROLS
+        # =========================
 
         bottom = QHBoxLayout()
 
+        bottom.addWidget(
+            QLabel("Interview Status")
+        )
+
         self.status = QComboBox()
+
         self.status.addItems([
+            "All",
             "Pending",
             "Confirmed",
             "Declined",
             "Reschedule Requested"
         ])
 
-        self.refresh_btn = QPushButton(
-            "Refresh List"
-        )
-
-        self.update_btn = QPushButton(
-            "Update Status"
-        )
-
-        self.refresh_btn.clicked.connect(
-            self.load_responses
-        )
-
-        self.update_btn.clicked.connect(
-            self.update_selected
-        )
-
-        bottom.addWidget(
-            QLabel("Interview Status")
+        self.status.currentTextChanged.connect(
+            self.filter_responses
         )
 
         bottom.addWidget(
@@ -214,22 +239,51 @@ class ResponseWindow(QWidget):
 
         bottom.addStretch()
 
+        self.refresh_btn = QPushButton(
+            "Refresh List"
+        )
+
+        self.refresh_btn.clicked.connect(
+            self.load_responses
+        )
+
         bottom.addWidget(
             self.refresh_btn
         )
 
-        bottom.addWidget(
-            self.update_btn
-        )
+        # =========================
+        # MAIN LAYOUT
+        # =========================
 
         layout = QVBoxLayout()
 
-        layout.addWidget(self.table)
-        layout.addWidget(details_group)
-        layout.addWidget(message_group)
-        layout.addLayout(bottom)
+        layout.addWidget(
+            self.table,
+            6
+        )
 
-        self.setLayout(layout)
+        layout.addWidget(
+            details_group,
+            0
+        )
+
+        layout.addWidget(
+            message_group,
+            3
+        )
+
+        layout.addLayout(
+            bottom,
+            0
+        )
+
+        self.setLayout(
+            layout
+        )
+
+    # =========================
+    # LOAD RESPONSES
+    # =========================
 
     def load_responses(self):
 
@@ -239,32 +293,9 @@ class ResponseWindow(QWidget):
 
             self.response_rows = rows
 
-            self.table.setRowCount(len(rows))
-
-            for row_index, row in enumerate(rows):
-
-                display = [
-    row[0],      # Response ID
-    row[1],      # Candidate ID
-    row[2],      # First Name
-    row[3],      # Last Name
-    row[4],      # Email
-    row[5],      # Phone
-    row[6],      # Assigned HR
-    row[7],      # Interview Type
-    row[8],      # Interview Level
-    row[9],      # Schedule
-    row[10],     # Status
-    row[12] if row[12] else "-"
-]
-
-                for column, value in enumerate(display):
-
-                    self.table.setItem(
-                        row_index,
-                        column,
-                        QTableWidgetItem(str(value))
-                    )
+            self.filter_responses(
+                self.status.currentText()
+            )
 
         except Exception as e:
 
@@ -274,9 +305,106 @@ class ResponseWindow(QWidget):
                 str(e)
             )
 
-    def select_response(self, row, column):
+    # =========================
+    # FILTER RESPONSES
+    # =========================
 
-        data = self.response_rows[row]
+    def filter_responses(
+        self,
+        selected_status
+    ):
+
+        if selected_status == "All":
+
+            filtered_rows = self.response_rows
+
+        else:
+
+            filtered_rows = [
+                row
+                for row in self.response_rows
+                if row[10] == selected_status
+            ]
+
+        self.filtered_rows = filtered_rows
+
+        self.table.clearContents()
+
+        self.table.setRowCount(
+            len(filtered_rows)
+        )
+
+        for row_index, row in enumerate(
+            filtered_rows
+        ):
+
+            display = [
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                row[5],
+                row[6],
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[12] if row[12] else "-"
+            ]
+
+            for column, value in enumerate(
+                display
+            ):
+
+                self.table.setItem(
+                    row_index,
+                    column,
+                    QTableWidgetItem(
+                        str(value)
+                    )
+                )
+
+        self.clear_details()
+
+    # =========================
+    # CLEAR DETAILS
+    # =========================
+
+    def clear_details(self):
+
+        self.selected_response_id = None
+
+        self.lbl_response_id.setText("-")
+        self.lbl_candidate_id.setText("-")
+        self.lbl_name.setText("-")
+        self.lbl_email.setText("-")
+        self.lbl_phone.setText("-")
+        self.lbl_hr.setText("-")
+        self.lbl_type.setText("-")
+        self.lbl_level.setText("-")
+        self.lbl_schedule.setText("-")
+        self.lbl_status.setText("-")
+        self.lbl_responded_at.setText("-")
+
+        self.reply_message.clear()
+
+    # =========================
+    # SELECT RESPONSE
+    # =========================
+
+    def select_response(
+        self,
+        row,
+        column
+    ):
+
+        if row < 0 or row >= len(
+            self.filtered_rows
+        ):
+            return
+
+        data = self.filtered_rows[row]
 
         self.selected_response_id = data[0]
 
@@ -292,6 +420,14 @@ class ResponseWindow(QWidget):
         reply_message = data[11]
         responded_at = data[12]
 
+        self.lbl_response_id.setText(
+            str(self.selected_response_id)
+        )
+
+        self.lbl_candidate_id.setText(
+            str(data[1])
+        )
+
         self.lbl_name.setText(
             f"{first_name} {last_name}"
         )
@@ -300,7 +436,9 @@ class ResponseWindow(QWidget):
             email
         )
 
-        self.lbl_phone.setText(phone)      
+        self.lbl_phone.setText(
+            phone
+        )
 
         self.lbl_hr.setText(
             assigned_hr
@@ -314,23 +452,18 @@ class ResponseWindow(QWidget):
             interview_level
         )
 
-        self.lbl_response_id.setText(
-            str(self.selected_response_id)
-        )
-
-        self.lbl_candidate_id.setText(
-            str(data[1])
-        )
-
         self.lbl_schedule.setText(
             str(interview_schedule)
         )
+
         self.lbl_status.setText(
             status
         )
 
         self.lbl_responded_at.setText(
-            str(responded_at) if responded_at else "-"
+            str(responded_at)
+            if responded_at
+            else "-"
         )
 
         if reply_message:
@@ -345,53 +478,9 @@ class ResponseWindow(QWidget):
                 "No response message was provided."
             )
 
-        index = self.status.findText(
-            status
-        )
-
-        if index >= 0:
-
-            self.status.setCurrentIndex(
-                index
-            )
-
-    def update_selected(self):
-
-        if self.selected_response_id is None:
-
-            QMessageBox.warning(
-                self,
-                "Selection Required",
-                "Please select an applicant from the table first."
-            )
-
-            return
-
-        try:
-
-            update_response(
-                self.selected_response_id,
-                self.status.currentText()
-            )
-
-            QMessageBox.information(
-                self,
-                "Success",
-                "Interview status updated successfully."
-            )
-
-            self.load_responses()
-
-            if self.table.currentRow() >= 0:
-                 self.select_response(self.table.currentRow(), 0)
-
-        except Exception as e:
-
-            QMessageBox.critical(
-                self,
-                "Database Error",
-                str(e)
-            )
+    # =========================
+    # CHECK INCOMING EMAILS
+    # =========================
 
     def check_incoming_emails(self):
 
@@ -403,7 +492,9 @@ class ResponseWindow(QWidget):
 
                 self.load_responses()
 
-                current_row = self.table.currentRow()
+                current_row = (
+                    self.table.currentRow()
+                )
 
                 if current_row >= 0:
 
