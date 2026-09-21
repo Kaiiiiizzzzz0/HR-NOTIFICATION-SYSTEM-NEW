@@ -478,9 +478,9 @@ class ResponseWindow(QWidget):
                 "No response message was provided."
             )
 
-    # =========================
+    
     # CHECK INCOMING EMAILS
-    # =========================
+    
 
     def check_incoming_emails(self):
 
@@ -490,16 +490,26 @@ class ResponseWindow(QWidget):
 
             if processed:
 
-                self.load_responses()
-
-                current_row = (
-                    self.table.currentRow()
+                processed_candidate_id = (
+                    processed[0]["candidate_id"]
                 )
 
-                if current_row >= 0:
+                self.load_responses()
+
+                response_row = next(
+                    (
+                        index
+                        for index, row
+                        in enumerate(self.filtered_rows)
+                        if row[1] == processed_candidate_id
+                    ),
+                    -1
+                )
+
+                if response_row >= 0:
 
                     self.select_response(
-                        current_row,
+                        response_row,
                         0
                     )
 

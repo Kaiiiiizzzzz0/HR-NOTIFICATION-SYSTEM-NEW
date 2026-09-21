@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.email_creator.scheduler import (
-    start_daily_scheduler,
-    start_weekly_report_scheduler
+    start_daily_scheduler
 )
 
 from views.candidate_window import (
@@ -165,15 +164,6 @@ if __name__ == "__main__":
     window.scheduler_timer = (
         start_daily_scheduler(
             window
-        )
-    )
-
-    window.weekly_report_timer = (
-        start_weekly_report_scheduler(
-            window,
-            weekday=0,
-            hour=17,
-            minute=0
         )
     )
 

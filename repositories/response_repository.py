@@ -765,9 +765,14 @@ def find_candidate_by_email(
         result = db.execute(
             text("""
                 SELECT
-                    candidate_id
-                FROM candidates
-                WHERE LOWER(email) = LOWER(:email)
+                    c.candidate_id
+                FROM candidates c
+                INNER JOIN interview_responses ir
+                    ON ir.candidate_id = c.candidate_id
+                WHERE LOWER(c.email) = LOWER(:email)
+                  AND ir.sent_at IS NOT NULL
+                  AND ir.status = 'Pending'
+                ORDER BY ir.sent_at DESC, ir.response_id DESC
                 LIMIT 1
             """),
             {

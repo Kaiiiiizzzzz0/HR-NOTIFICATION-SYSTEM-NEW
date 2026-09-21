@@ -23,99 +23,120 @@ def decode_text(value):
     if not value:
         return ""
 
-    decoded = decode_header(value)
-
     result = []
 
-    for part, encoding in decoded:
+    for part, encoding in decode_header(value):
 
         if isinstance(part, bytes):
-
             result.append(
                 part.decode(
                     encoding or "utf-8",
                     errors="replace"
                 )
             )
-
         else:
             result.append(part)
 
     return "".join(result)
 
+
 def get_email_body(message):
 
-    body = ""
+    plain_text = ""
+    html_text = ""
 
     if message.is_multipart():
 
         for part in message.walk():
 
             content_type = part.get_content_type()
-
-            content_disposition = str(
+            disposition = str(
                 part.get("Content-Disposition", "")
+            ).lower()
+
+            if "attachment" in disposition:
+                continue
+
+            payload = part.get_payload(decode=True)
+
+            if not payload:
+                continue
+
+            charset = (
+                part.get_content_charset()
+                or "utf-8"
             )
 
-            if (
-                content_type == "text/plain"
-                and "attachment" not in content_disposition
-            ):
+            text = payload.decode(
+                charset,
+                errors="replace"
+            ).strip()
 
-                payload = part.get_payload(
-                    decode=True
-                )
+            if content_type == "text/plain" and not plain_text:
+                plain_text = text
 
-                if payload:
-
-                    body = payload.decode(
-                        part.get_content_charset()
-                        or "utf-8",
-                        errors="replace"
-                    )
-
-                    break
+            elif content_type == "text/html" and not html_text:
+                html_text = text
 
     else:
 
-        payload = message.get_payload(
-            decode=True
-        )
+        payload = message.get_payload(decode=True)
 
         if payload:
 
-            body = payload.decode(
+            charset = (
                 message.get_content_charset()
-                or "utf-8",
-                errors="replace"
+                or "utf-8"
             )
+
+            text = payload.decode(
+                charset,
+                errors="replace"
+            ).strip()
+
+            if message.get_content_type() == "text/plain":
+                plain_text = text
+
+            elif message.get_content_type() == "text/html":
+                html_text = text
+
+    return plain_text or html_text
+
+
+def extract_new_reply(body):
+
+    if not body:
+        return ""
 
     body = body.strip()
 
-    if not body:
-        return "No response provided."
+    # Remove common quoted-reply sections.
+    patterns = [
+        r"\nOn .+?wrote:\s*\n",
+        r"\nFrom:\s*.+?\nSent:\s*.+?\n",
+        r"\n-{2,}\s*Original Message\s*-{2,}",
+        r"\n>+"
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            body,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+        if match:
+            body = body[:match.start()].strip()
 
     return body
 
-def extract_new_reply(body):
-    marker = re.search(
-        r"On .+?wrote:",
-        body,
-        flags=re.IGNORECASE | re.DOTALL
-    )
-
-    if marker:
-        return body[:marker.start()].strip()
-
-    return body.strip()
 
 def find_candidate_by_email(sender_email):
 
-    candidate_id = find_candidate_id_by_email(
-        sender_email
+    return find_candidate_id_by_email(
+        sender_email.strip()
     )
-
-    return candidate_id
 
 
 def check_inbox():
@@ -147,13 +168,18 @@ def check_inbox():
             IMAP_PASSWORD
         )
 
-        mailbox.select("INBOX")
+        status, _ = mailbox.select("INBOX")
 
-        # Only check recent emails.
+        if status != "OK":
+            raise RuntimeError(
+                "Unable to open INBOX."
+            )
+
         since_date = (
             datetime.now() - timedelta(days=2)
         ).strftime("%d-%b-%Y")
 
+        # Only check recent emails.
         status, data = mailbox.search(
             None,
             "SINCE",
@@ -176,10 +202,7 @@ def check_inbox():
                     "(RFC822)"
                 )
 
-                if status != "OK":
-                    continue
-
-                if not message_data:
+                if status != "OK" or not message_data:
                     continue
 
                 raw_email = message_data[0][1]
@@ -188,31 +211,51 @@ def check_inbox():
                     raw_email
                 )
 
-                sender_name, sender_email = parseaddr(
+                _, sender_email = parseaddr(
                     message.get("From", "")
                 )
 
                 sender_email = sender_email.strip()
 
+                print(
+                    f"Incoming email from: {sender_email}"
+                )
+
                 if not sender_email:
+                    print("Skipped: no sender email.")
                     continue
 
-                # Check whether the sender is an applicant.
                 candidate_id = find_candidate_by_email(
                     sender_email
                 )
 
-                
                 if candidate_id is None:
+
+                    print(
+                        f"Skipped: no candidate found "
+                        f"for {sender_email}"
+                    )
+
                     continue
 
-                reply_message = get_email_body(message)
-                reply_message = extract_new_reply(reply_message)
+                body = get_email_body(message)
+
+                reply_message = extract_new_reply(body)
 
                 if not reply_message:
+
+                    print(
+                        f"Skipped: empty reply from "
+                        f"{sender_email}"
+                    )
+
                     continue
 
-                # Save the applicant's actual email reply.
+                print(
+                    f"Saving reply for candidate "
+                    f"{candidate_id}: {reply_message}"
+                )
+
                 save_incoming_reply(
                     candidate_id,
                     reply_message
@@ -227,8 +270,7 @@ def check_inbox():
                     "reply": reply_message
                 })
 
-                # Only mark as read AFTER successfully
-                # saving the applicant's reply.
+                # Mark as read only after successful save.
                 mailbox.store(
                     message_id,
                     "+FLAGS",
@@ -238,7 +280,8 @@ def check_inbox():
             except Exception as error:
 
                 print(
-                    f"Failed to process email {message_id}: {error}"
+                    f"Failed to process email "
+                    f"{message_id}: {error}"
                 )
 
                 continue

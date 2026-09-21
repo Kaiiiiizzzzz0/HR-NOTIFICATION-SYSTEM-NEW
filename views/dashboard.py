@@ -27,9 +27,6 @@ from services.candidate import (
 )
 
 from views.filter_dialog import FilterDialog
-from views.weekly_report_dialog import WeeklyReportDialog
-
-
 class DashboardWindow(QWidget):
 
     def __init__(self, parent=None):
@@ -204,14 +201,6 @@ class DashboardWindow(QWidget):
         # BUTTONS
         # =========================
 
-        self.weekly_report_btn = QPushButton(
-            "Weekly Report"
-        )
-
-        self.weekly_report_btn.clicked.connect(
-            self.open_weekly_report_dialog
-        )
-
         self.filter_btn = QPushButton(
             "Filter"
         )
@@ -233,10 +222,6 @@ class DashboardWindow(QWidget):
         bottom_buttons.addStretch()
 
         bottom_buttons.addWidget(
-            self.weekly_report_btn
-        )
-
-        bottom_buttons.addWidget(
             self.filter_btn
         )
 
@@ -247,16 +232,6 @@ class DashboardWindow(QWidget):
         layout.addLayout(
             bottom_buttons
         )
-
-    # =========================
-    # WEEKLY REPORT
-    # =========================
-
-    def open_weekly_report_dialog(self):
-
-        dialog = WeeklyReportDialog(self)
-
-        dialog.exec()
 
     # =========================
     # FILTER
